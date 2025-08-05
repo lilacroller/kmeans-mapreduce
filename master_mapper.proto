@@ -1,0 +1,16 @@
+syntax="proto3";
+
+service InstructMapper {
+
+    rpc SendDataFiles(Files) returns (Status) {}
+
+}
+
+message Files {
+    string datafile = 1;
+    string centroidfile = 2;
+}
+
+message Status {
+    int32 status_code = 1;
+}
