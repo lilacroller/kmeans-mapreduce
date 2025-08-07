@@ -2,13 +2,19 @@ syntax="proto3";
 
 service InstructMapper {
 
-    rpc SendDataFiles(Files) returns (Status) {}
+    rpc SendMapperInput(MapperInput) returns (Status) {}
 
 }
 
-message Files {
-    string datafile = 1;
-    string centroidfile = 2;
+message MapperInput {
+    int32 reducerCount = 1;
+    string datafile = 2;
+    repeated Point centroids = 3;
+}
+
+message Point {
+    int32 X = 1;
+    int32 Y = 2;
 }
 
 message Status {
