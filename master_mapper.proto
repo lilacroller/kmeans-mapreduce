@@ -1,5 +1,8 @@
 syntax="proto3";
 
+import "point.proto";
+
+
 service InstructMapper {
 
     rpc SendMapperInput(MapperInput) returns (Status) {}
@@ -9,13 +12,9 @@ service InstructMapper {
 message MapperInput {
     int32 reducerCount = 1;
     string datafile = 2;
-    repeated Point centroids = 3;
+    repeated point.Point centroids = 3;
 }
 
-message Point {
-    double X = 1;
-    double Y = 2;
-}
 
 message Status {
     int32 status_code = 1;

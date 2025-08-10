@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-
+import "point.proto";
 
 service SetupReducer {
     
@@ -14,10 +14,5 @@ message ReducerIndex {
 }
 
 message NewCentroid {
-    Point centroid = 1;
-}
-
-message Point {
-    double X = 1;
-    double Y = 2;
+    point.Point centroid = 1;
 }
