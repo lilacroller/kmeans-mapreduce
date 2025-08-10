@@ -13,8 +13,8 @@ message MapperInput {
 }
 
 message Point {
-    int32 X = 1;
-    int32 Y = 2;
+    double X = 1;
+    double Y = 2;
 }
 
 message Status {
