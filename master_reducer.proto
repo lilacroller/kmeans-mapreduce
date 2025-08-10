@@ -4,7 +4,7 @@ syntax = "proto3";
 
 service SetupReducer {
     
-    rpc GetNewCentroids(ReducerIndex) returns (NewCentroid) {}
+    rpc getNewCentroids(ReducerIndex) returns (NewCentroid) {}
 
 }
 
@@ -14,5 +14,10 @@ message ReducerIndex {
 }
 
 message NewCentroid {
-    string filename = 1;
+    Point centroid = 1;
+}
+
+message Point {
+    int32 X = 1;
+    int32 Y = 2;
 }
