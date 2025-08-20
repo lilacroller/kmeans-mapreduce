@@ -4,15 +4,21 @@ import "point.proto";
 
 service SetupReducer {
     
-    rpc getNewCentroids(ReducerIndex) returns (NewCentroid) {}
+    rpc getNewCentroids(IDs) returns (CentroidList) {}
 
 }
 
 
-message ReducerIndex {
-    int32 index = 1;
+message IDs {
+    int32 reducerID = 1;
+    int32 mapperCount = 2;
+}
+
+message CentroidList {
+    repeated NewCentroid centroids = 1;
 }
 
 message NewCentroid {
-    point.Point centroid = 1;
+    int32 centroidid = 1;
+    point.Point centroid = 2;
 }

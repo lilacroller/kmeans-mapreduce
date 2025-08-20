@@ -81,7 +81,6 @@ class InstructMapperServicer(master_mapper_pb2_grpc.InstructMapperServicer):
         for centroid in centroids:
             centroidList.append([centroid.X,centroid.Y])
 
-        print(f"inputfile: {inputFile}")
         file= open(inputFile,"r")
         pointList= []
         strpoint= file.readline()
