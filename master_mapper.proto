@@ -13,9 +13,11 @@ message MapperInput {
     int32 reducerCount = 1;
     string datafile = 2;
     repeated point.Point centroids = 3;
+    int32 jobID = 4;
 }
 
 
 message Status {
     int32 status_code = 1;
+    int32 jobID = 2;
 }

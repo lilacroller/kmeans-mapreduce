@@ -3,6 +3,8 @@ import grpc
 import threading
 import os
 import logging
+import random
+import time
 
 import master_mapper_pb2
 import master_mapper_pb2_grpc
@@ -95,10 +97,17 @@ class InstructMapperServicer(master_mapper_pb2_grpc.InstructMapperServicer):
         writeCluster2Files(clusters, reducerCount)
         logging.info(f"mapper{mapperID}: SendMapperInput processed and wrote the clusters in the files")
 
-
-        status= master_mapper_pb2.Status()
-        status.status_code= 100
-        return status
+        wait= random.uniform(0,3)
+        time.sleep(wait)
+        logging.info(f"waited for {wait} seconds")
+        print(f"waited for {wait} seconds")
+        codes= [100,200] # 100 -> successful, 200 -> unsuccessful
+        response= master_mapper_pb2.Status()
+        response.status_code= random.choice(codes)
+        logging.info(f"response status: {response.status_code}")
+        response.jobID= request.jobID
+#        status.status_code= 200
+        return response
 
 class KVServicer(reducer_mapper_pb2_grpc.KVServicer):
     def getKV(self, request, context):
@@ -119,6 +128,7 @@ class KVServicer(reducer_mapper_pb2_grpc.KVServicer):
             strkv= file.readline()
 
         logging.info(f"mapper{mapperID}: compiled key value list")
+        response.status= 100
         return response
 
 def serve(port):

@@ -16,6 +16,7 @@ message IDs {
 
 message CentroidList {
     repeated NewCentroid centroids = 1;
+    int32 status= 2;
 }
 
 message NewCentroid {

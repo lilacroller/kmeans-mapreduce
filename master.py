@@ -2,7 +2,7 @@ import grpc
 import random
 import os
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, ALL_COMPLETED, wait
 
 import point_pb2
 import master_mapper_pb2
@@ -19,7 +19,9 @@ randomRangeMinX= 20
 randomRangeMinY= 20
 randomRangeMaxX= 20
 randomRangeMaxY= 20
-delta= 1
+delta= 0.5
+activeMapperList= []
+initActiveMapper= False
 
 class GRPCClient:
     def __init__(self):
@@ -93,53 +95,171 @@ def writeCentroidtoFile(centroids):
             file.write(f"{point[0]},{point[1]}\n")
 
 
-def runMappers(mapperCount, reducerCount, centroidList):
-    mapperObject = GRPCClient()
-    ports = [port for port in range(mapperStarterPort, mapperStarterPort + mapperCount)]
-    pool= ThreadPoolExecutor(max_workers=5)
+def initializeActiveMapper(mapperCount):
+    global initActiveMapper
+    global activeMapperList
+    ports= [port for port in range(mapperStarterPort, mapperStarterPort + mapperCount)]
     for i in range(mapperCount):
-        pool.submit(runEachMapper, mapperObject, ports, reducerCount, centroidList, i)
-    pool.shutdown(wait=True, cancel_futures=False)
+        activeMapperList.append(ports[i])
+    
+    initActiveMapper= True
+
+def runMappers(mapperCount, reducerCount, centroidList):
+    if initActiveMapper==False:
+        initializeActiveMapper(mapperCount)
+    tags= {}
+    jobStatus= {}
+    for i in range(mapperCount):
+        jobStatus[i]= False
+    mapperObject = GRPCClient()
+    pool= ThreadPoolExecutor(max_workers=5)
+    futures= set()
+    stubs= {}
+    for i in range(len(activeMapperList)):
+        stubs[activeMapperList[i]]= mapperObject.get_stub(activeMapperList[i], master_mapper_pb2_grpc.InstructMapperStub)
+        fut= pool.submit(runEachMapper, reducerCount, 
+                        centroidList, stubs[activeMapperList[i]], i)
+        futures.add(fut)
+        tags[fut]= [activeMapperList[i], i]
+    
+
+
+    while futures:
+        print(f"activaMapperList size: {len(activeMapperList)}")
+        done, not_done = wait(futures, timeout=5, return_when=ALL_COMPLETED)
+        print(f"done length: {len(done)}")
+        print(f"not_done length: {len(not_done)}")
+        for unfinished in not_done:
+            logging.info(f"mapper result wait timed-out for port {tags[unfinished][0]}")
+            print(f"mapper result wait timed-out for port {tags[unfinished][0]}")
+            activeMapperList.remove(tags[unfinished][0])
+            futures.remove(unfinished)
+            port= random.choice(activeMapperList)
+            future= pool.submit(runEachMapper, reducerCount, centroidList,
+                                stubs[port], tags[unfinished][1])
+            futures.add(future)
+            tags[future]= [port, tags[unfinished][1]]
+            del tags[unfinished]
+
+
+        for finished in done:        
+            try:
+                result= finished.result()
+            except grpc._channel._InactiveRpcError:
+                print(f"port {tags[finished][0]} unaivalable")
+                activeMapperList.remove(tags[finished][0])
+                futures.remove(finished)
+                port= random.choice(activeMapperList)
+                future= pool.submit(runEachMapper, reducerCount, centroidList,
+                                    stubs[port], tags[finished][1])
+                futures.add(future)
+                tags[future]= [port, tags[finished][1]]
+                del tags[finished]
+                continue
+
+            if result.status_code==100:
+                logging.info(f"received status code 100 for jobID: {result.jobID}")
+                print(f"received status code 100 for jobID: {result.jobID}")
+                futures.remove(finished)
+                jobStatus[result.jobID]= True
+            else:
+                logging.info(f"received status code 200 for jobID: {result.jobID}")
+                print(f"received status code 200 for jobID: {result.jobID}")
+                futures.remove(finished)
+                port= random.choice(activeMapperList)
+                future= pool.submit(runEachMapper, reducerCount,
+                                         centroidList, stubs[port], result.jobID)
+                futures.add(future)
+                tags[future]= [port, tags[finished][1]]
+#    pool.shutdown(wait=True, cancel_futures=False)
     return
     
     
     
-def runEachMapper(mapperObject, ports, reducerCount, centroidList, mapperID):
-    stub= mapperObject.get_stub(ports[mapperID], master_mapper_pb2_grpc.InstructMapperStub)
+def runEachMapper(reducerCount, centroidList, stub,  mapperID):
     mapperInput= master_mapper_pb2.MapperInput()
     mapperInput.reducerCount= reducerCount
     mapperInput.datafile= f"{splitPrefix}{mapperID}.txt"
+    mapperInput.jobID= mapperID
     for centroid in centroidList:
         point= point_pb2.Point()
         point.X= float(centroid[0])
         point.Y= float(centroid[1])
         mapperInput.centroids.append(point)
-    stub.SendMapperInput(mapperInput)
+    return stub.SendMapperInput(mapperInput)
 
+activeReducerList= []
+initActiveReducer= False
+def initializeActiveReducer(reducerCount):
+    global initActiveReducer
+    global activeReducerList
+    ports= []
+    for i in range(reducerStarterPort, reducerStarterPort + reducerCount):
+        ports.append(i)
+    
+    activeReducerList= ports
+    initActiveReducer= True
 
 def runReducers(reducerCount, mapperCount, centroidCount):
+    if initActiveReducer==False:
+        initializeActiveReducer(reducerCount)
+    
+
     reducerObject = GRPCClient()
     newCentroidList = []
     for i in range(centroidCount):
         newCentroidList.append([])
-    ports = [port for port in range(reducerStarterPort, reducerStarterPort + reducerCount)]
+
     pool= ThreadPoolExecutor(max_workers=5)
-    for i in range(reducerCount):
-        pool.submit(runEachReducer, reducerObject, ports, reducerCount, mapperCount,
-                     newCentroidList, i)
-    pool.shutdown(wait= True, cancel_futures= False)
+    tags= {}
+    stubs= {}
+    futures= set()
+    for i in range(len(activeReducerList)):
+        stub= reducerObject.get_stub(activeReducerList[i], master_reducer_pb2_grpc.SetupReducerStub)
+        future= pool.submit(runEachReducer, reducerCount, mapperCount, stub, i)
+        futures.add(future)
+        stubs[activeReducerList[i]]= stub
+        tags[future]=[activeReducerList[i], i]
+
+
+    while futures:
+        done, not_done= wait(futures, timeout=5, return_when=ALL_COMPLETED)
+
+        for finished in done:
+            try:
+                result= finished.result()
+            except grpc._channel._InactiveRpcError:
+                activeReducerList.remove(tags[finished][0])
+                futures.remove(finished)
+                port= random.choice(activeReducerList)
+                future= pool.submit(runEachReducer, reducerCount, mapperCount,
+                                    stubs[port], tags[finished][1])
+                futures.add(future)
+                tags[future]=[port, tags[finished][1]]
+                del tags[finished]
+                continue
+
+            if result.status==100:
+                for centroid in result.centroids:
+                    newCentroidList[centroid.centroidid]+= [centroid.value.X,centroid.value.Y]
+                futures.remove(finished)
+            else:
+                futures.remove(finished)
+                port= random.choice(activeReducerList)
+                future= pool.submit(runEachReducer, reducerCount, mapperCount,
+                                    stubs[port], tags[finished][1])
+                futures.add(future)
+                tags[future]= [port, tags[finished][1]]
+
+
+#    pool.shutdown(wait= True, cancel_futures= False)
     return newCentroidList
 
-def runEachReducer(reducerObject, ports, reducerCount, mapperCount, newCentroidList, reducerID):
-    stub = reducerObject.get_stub(ports[reducerID], master_reducer_pb2_grpc.SetupReducerStub)
+def runEachReducer(reducerCount, mapperCount, stub, reducerID):
     index= master_reducer_pb2.IDs()
     index.reducerID= reducerID % reducerCount
     index.mapperCount= mapperCount
-    centroidkv= stub.GetNewCentroids(index)
-    for centroid in centroidkv.centroids:
-        newCentroidList[centroid.centroidid]+= [centroid.value.X,centroid.value.Y]
-
-    return
+    return stub.GetNewCentroids(index)
 
 
 def fillVoid(centroidList):
@@ -226,10 +346,17 @@ def main():
     newCentroids= generateCentroids(K, randomRangeMaxX, -randomRangeMaxY, 
                                     randomRangeMinX, -randomRangeMinY)
     writeCentroidtoFile(newCentroids)
+    print(f"initial centroids:")
+    for centroid in newCentroids:
+        print(f"{centroid}")
     for i in range(iterations):
         runMappers(M, R, newCentroids)
         oldCentroids= newCentroids
         newCentroids= runReducers(R, M, K)
+        print(f"centroids for iteration {i} are:")
+        for centroid in newCentroids:
+            print(f"{centroid}")
+        print(f"======================================")
         fillVoid(newCentroids)
         writeCentroidtoFile(newCentroids)
         logging.info(f"centroids for iteration {i} are:")
